@@ -1,0 +1,176 @@
+---
+title: "Data Visualization in R"
+author: "CodeRATS"
+date: "1/29/2020"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+    fig_width: 4
+    fig_height: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  echo = TRUE)
+```
+
+## Setup 
+
+Download [R](https://www.r-project.org/) and [RStudio](https://rstudio.com/products/rstudio/download/) (the free version works perfectly well). 
+Open the zipped project folder, and click the .Rproj file which will install the packages necessary for the project. You can then open the .Rmd notebook to begin working. 
+
+## ggplot toy example 
+
+```{r}
+#anscoms_quartet
+```
+
+## Biological question
+
+For this workshop, we will use data from the Broad's [Cancer Dependency Map](https://depmap.org/portal/), a compendium of genome-wide CRISPR screens across hundreds of cancer cell lines, to identify genetic vulnerabilities.
+
+## Preparing data
+
+Here we use the packages, *readr*, *dplyr* and *tidyr* to prepare data for analysis. We will have a later session on using these packages to wrangle data.  
+
+```{r}
+library(magrittr) # allows us to use the %>% operator
+gene_effect = readr::read_csv(here::here('example_data', 
+                                         'Achilles_gene_effect.csv.zip')) # rely on local filepaths with here
+cell_line_info = readr::read_csv(here::here('example_data', 'sample_info.csv.zip'),
+                                 col_types = list(additional_info = readr::col_character()))
+tidy_gene_effects = gene_effect %>%
+  dplyr::rename('DepMap_ID' = 'X1') %>%
+  tidyr::pivot_longer(-DepMap_ID, names_to = 'Gene (ID)', values_to = 'CERES score')
+joined_effects_cell_info = dplyr::inner_join(tidy_gene_effects, cell_line_info)
+```
+
+```{r}
+print(head(joined_effects_cell_info))
+```
+
+## Analyzing and visualizing data
+
+In order to pracitice visualizing data with thousands of observations while also investigating a biologically relevant question, we will ask which genes are selectively essential in leukemia cell lines? 
+
+To answer this question, we will take the median CERES score for Leukemia cell lines vs the median score for all other cell lines. Taking the difference between these scores, we see that MYB is the top differential dependency.
+
+```{r}
+leukemia_dependency = joined_effects_cell_info %>%
+  dplyr::mutate(type = ifelse(disease == 'Leukemia', 'Leukemia', 'other')) %>%
+  dplyr::group_by(`Gene (ID)`, type) %>%
+  dplyr::summarise(median_effect = median(`CERES score`, na.rm = T)) %>%
+  tidyr::pivot_wider(names_from = type, values_from = median_effect) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(delta = Leukemia - other) %>%
+  dplyr::arrange(delta)
+print(head(leukemia_dependency))
+```
+
+### ggplot2 and the grammar of graphics
+
+We can plot these differential dependencies using the grammar of grapics library, *ggplot2*. From the ggplot2 [documentation](https://ggplot2.tidyverse.org/):
+
+> It’s hard to succinctly describe how ggplot2 works because it embodies a deep philosophy of
+> visualisation. However, in most cases you start with ggplot(), supply a dataset and aesthetic
+> mapping (with aes()). You then add on layers (like geom_point() or geom_histogram()), scales (like
+> scale_colour_brewer()), faceting specifications (like facet_wrap()) and coordinate systems (like
+> coord_flip()).
+
+#### Density plot of ceres scores
+
+
+#### Scatterplot
+
+Using ggplot2 we'll plot the median CERES score (a measure of a gene's essentiality in a cell line) of non-Leukemia vs Leukemia cell lines. Here we can see the leukemia and non-leukemia CERES
+
+```{r}
+library(ggplot2) # allows us to use the grammar of ggplot2
+ggplot(leukemia_dependency) +
+  aes(x = Leukemia, y = other) +
+  coord_equal() +
+  geom_point() +
+  geom_abline(color = 'grey50')
+```
+
+Often, it is helpful to know the density of points in an dense scatterplot. We can do this using 
+
+1. ggplot's internal `stat_density2d` function
+2. the external package *ggpointdensity* to overlay color representing density
+
+```{r}
+ggplot(leukemia_dependency) +
+  aes(x = Leukemia, y = other) +
+  coord_equal() +
+  geom_point() +
+  stat_density2d(n = 50) +
+  geom_abline(color = 'grey50') +
+  ggtitle('Using stat_density2d')
+```
+
+
+```{r}
+ggplot(leukemia_dependency) +
+  aes(x = Leukemia, y = other) +
+  coord_equal() +
+  ggpointdensity::geom_pointdensity() +
+  scale_color_viridis_c() +
+  geom_abline(color = 'grey50') +
+  ggtitle('Using ggpointdensity')
+```
+
+Suppose we want to label the top hits in our scatterplot. ggplot2's `geom_text` allows us label points, but these can be overlapping and difficult to read. On the other hand, `geom_text_repel` from *ggrepel* repels overlapping labels away from one another.
+
+```{r}
+top_dependencies <- leukemia_dependency %>%
+  dplyr::top_n(3, -delta)
+labeled_dependency <- leukemia_dependency %>%
+  dplyr::mutate(label = ifelse(`Gene (ID)` %in% top_dependencies$`Gene (ID)`, 
+                               `Gene (ID)`, ''))
+ggplot(labeled_dependency) +
+  aes(x = Leukemia, y = other, label = label) +
+  coord_equal() +
+  ggpointdensity::geom_pointdensity() +
+  scale_color_viridis_c() +
+  geom_abline(color = 'grey50') +
+  ggrepel::geom_text_repel(size = 3, box.padding = 0.5, min.segment.length = 0)
+```
+
+#### Exercise
+
+What are the top 3 buffering dependencies (i.e. greatest positive difference) 
+for Leukemia cell lines? Can you label them in a scatterplot?
+
+#### Boxplots
+
+To gain an understanding for another type of plot we can make with ggplot2, we will use boxplots to see if there are any Leukemia sublineages which are enriched for our top genes. We see that MYB is essential for all specified sublineages, whereas CBFB is variably essential in CML lines and TYMS is variably essential in AML lines.
+
+Scale fill brewer 
+
+```{r}
+top_leukemia_genes <- joined_effects_cell_info %>% 
+  dplyr::filter(`Gene (ID)` %in% unique(top_dependencies$`Gene (ID)`)) %>%
+  dplyr::mutate(leukemia_subtype =ifelse(disease == 'Leukemia', 
+                                         lineage_subtype, 'non-Leukemia'),
+                leukemia_subtype = forcats::fct_reorder(leukemia_subtype, `CERES score`)) #allows us to reorder the subtypes by CERES score
+ggplot(top_leukemia_genes) +
+  aes(x = leukemia_subtype, y = `CERES score`) +
+  geom_boxplot() +
+  facet_wrap(vars(`Gene (ID)`)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) 
+```
+
+Scales are taken care of by faceting
+
+#### Exercise 
+
+Are there any subtypes which act differently for the top buffering genes?
+
+## References
+
+* [ggplot2 cheatsheet](https://github.com/rstudio/cheatsheets/blob/master/data-visualization-2.1.pdf)
+* [R for Data Science](https://r4ds.had.co.nz/introduction.html)
+
