@@ -71,6 +71,15 @@ ggplot(tidy_anscombe) +
   scale_color_brewer(palette = 'Paired')
 ```
 
+
+```{r}
+ggplot(tidy_anscombe) +
+  aes(x = x, y = y, color = as.factor(set)) +
+  geom_point() +
+  scale_color_brewer(palette = 'Paired') +
+  facet_wrap(.~set)
+```
+
 ## DepMap Data
 
 In order to pracitice visualizing data with thousands of observations while also investigating a biologically relevant question, we will use data from the Broad's [Cancer Dependency Map](https://depmap.org/portal/), a compendium of genome-wide CRISPR screens across hundreds of cancer cell lines, to identify genetic vulnerabilities.
